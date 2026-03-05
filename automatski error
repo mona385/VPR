@@ -1,0 +1,68 @@
+enum State { STOP, STARTING, RUN, ERROR };
+State state = STOP;
+
+unsigned long lastSend = 0;
+unsigned long lastTempUpdate = 0;
+
+int temp = 25;  // početna temperatura
+
+void setup() {
+  Serial.begin(9600);
+}
+
+void loop() {
+  // --- primanje komandi s "operatora"
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+
+    if (cmd == "CMD:START") state = STARTING;
+    else if (cmd == "CMD:STOP") state = STOP;
+    else if (cmd == "CMD:ERROR") state = ERROR;
+    else if (cmd == "CMD:RESET" && state == ERROR) {
+      state = STOP;
+      temp = 25;  // reset temperature
+    }
+  }
+
+  // --- prelazak STARTING -> RUN nakon 2 s
+  if (state == STARTING) {
+    delay(2000);
+    state = RUN;
+  }
+
+  // --- rast temperature dok stroj radi
+  if (state == RUN && millis() - lastTempUpdate >= 1000) {
+    temp += 3; // povećaj temperaturu svake sekunde
+    lastTempUpdate = millis();
+  }
+
+  // --- zaštita: ako temp > 80 ide u ERROR
+  if (temp > 80) {
+    state = ERROR;
+  }
+
+  // --- slanje statusa svakih 500 ms
+  if (millis() - lastSend >= 500) {
+    sendStatus();
+    lastSend = millis();
+  }
+}
+
+void sendStatus() {
+  if (state == STOP) {
+    Serial.println("ST:STOP");
+  }
+  else if (state == STARTING) {
+    Serial.println("ST:STARTING");
+  }
+  else if (state == RUN) {
+    Serial.print("ST:RUN,TEMP:");
+    Serial.print(temp);
+    Serial.println(",RPM:1200");
+  }
+  else if (state == ERROR) {
+    Serial.print("ST:ERROR,TEMP:");
+    Serial.println(temp);
+  }
+}
