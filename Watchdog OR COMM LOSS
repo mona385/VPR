@@ -1,0 +1,85 @@
+enum State { STOP, STARTING, RUN, ERROR };
+State state = STOP;
+
+unsigned long lastSend = 0;
+unsigned long lastTempUpdate = 0;
+
+int temp = 25;
+
+// watchdog
+unsigned long lastPing = 0;
+const unsigned long PING_TIMEOUT_MS = 2000; // 2 s
+
+String lastError = "NONE";
+
+void setup() {
+  Serial.begin(9600);
+}
+
+void loop() {
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+
+    if (cmd == "CMD:PING") {
+      lastPing = millis();
+      Serial.println("ACK:PING");
+    }
+    else if (cmd == "CMD:START") {
+      state = STARTING;
+      lastPing = millis(); // startamo watchdog
+      Serial.println("ACK:START");
+    }
+    else if (cmd == "CMD:STOP") {
+      state = STOP;
+      Serial.println("ACK:STOP");
+    }
+    else if (cmd == "CMD:RESET" && state == ERROR) {
+      state = STOP;
+      temp = 25;
+      lastError = "NONE";
+      Serial.println("ACK:RESET");
+    }
+  }
+
+  if (state == STARTING) {
+    delay(2000);
+    state = RUN;
+  }
+
+  // temp raste dok RUN
+  if (state == RUN && millis() - lastTempUpdate >= 1000) {
+    temp += 2;
+    lastTempUpdate = millis();
+  }
+
+  // watchdog aktivan samo u RUN
+  if (state == RUN) {
+    if (millis() - lastPing > PING_TIMEOUT_MS) {
+      state = ERROR;
+      lastError = "COMM_LOSS";
+    }
+  }
+
+  if (millis() - lastSend >= 500) {
+    sendStatus();
+    lastSend = millis();
+  }
+}
+
+void sendStatus() {
+  if (state == STOP) {
+    Serial.println("ST:STOP");
+  } else if (state == STARTING) {
+    Serial.println("ST:STARTING");
+  } else if (state == RUN) {
+    Serial.print("ST:RUN,TEMP:");
+    Serial.print(temp);
+    Serial.println(",RPM:1200");
+  } else if (state == ERROR) {
+    Serial.print("ST:ERROR,ERR:");
+    Serial.print(lastError);
+    Serial.print(",TEMP:");
+    Serial.println(temp);
+  }
+}
