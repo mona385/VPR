@@ -1,0 +1,66 @@
+enum State { STOP, STARTING, RUN, ERROR };
+State state = STOP;
+
+unsigned long lastTel = 0;
+unsigned long lastTempUpdate = 0;
+
+int temp = 25;
+bool alarmOverheatSent = false;
+
+void setup() {
+  Serial.begin(9600);
+}
+
+void loop() {
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+
+    if (cmd == "CMD:START") { state = STARTING; Serial.println("ACK:START"); }
+    else if (cmd == "CMD:STOP") { state = STOP; Serial.println("ACK:STOP"); }
+    else if (cmd == "CMD:RESET" && state == ERROR) {
+      state = STOP;
+      temp = 25;
+      alarmOverheatSent = false;
+      Serial.println("ACK:RESET");
+    }
+  }
+
+  if (state == STARTING) {
+    delay(2000);
+    state = RUN;
+  }
+
+  // proces
+  if (state == RUN && millis() - lastTempUpdate >= 1000) {
+    temp += 4;
+    lastTempUpdate = millis();
+  }
+
+  // ALARM ima prioritet: šalje se odmah kad se uvjet ispuni
+  if (state == RUN && temp > 80 && !alarmOverheatSent) {
+    Serial.print("ALM:OVERHEAT,TEMP:");
+    Serial.println(temp);
+    alarmOverheatSent = true;
+    state = ERROR;
+  }
+
+  // telemetrija (niži prioritet, periodično)
+  if (millis() - lastTel >= 500) {
+    sendTelemetry();
+    lastTel = millis();
+  }
+}
+
+void sendTelemetry() {
+  if (state == STOP) Serial.println("TEL:ST=STOP");
+  else if (state == STARTING) Serial.println("TEL:ST=STARTING");
+  else if (state == RUN) {
+    Serial.print("TEL:ST=RUN,TEMP:");
+    Serial.print(temp);
+    Serial.println(",RPM:1200");
+  } else if (state == ERROR) {
+    Serial.print("TEL:ST=ERROR,TEMP:");
+    Serial.println(temp);
+  }
+}
