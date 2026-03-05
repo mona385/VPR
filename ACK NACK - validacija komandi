@@ -1,0 +1,61 @@
+enum State { STOP, STARTING, RUN, ERROR };
+State state = STOP;
+
+unsigned long lastSend = 0;
+unsigned long lastTempUpdate = 0;
+
+int temp = 25;
+String lastError = "NONE";
+
+void setup() {
+  Serial.begin(9600);
+}
+
+void loop() {
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+
+    if (cmd == "CMD:START") {
+      if (state == STOP) { state = STARTING; Serial.println("ACK:START"); }
+      else Serial.println("NACK:START:NOT_IN_STOP");
+    }
+    else if (cmd == "CMD:STOP") {
+      if (state == RUN || state == STARTING) { state = STOP; Serial.println("ACK:STOP"); }
+      else Serial.println("NACK:STOP:NOT_RUNNING");
+    }
+    else if (cmd == "CMD:ERROR") {
+      state = ERROR; lastError = "MANUAL"; Serial.println("ACK:ERROR");
+    }
+    else if (cmd == "CMD:RESET") {
+      if (state == ERROR) { state = STOP; temp = 25; lastError = "NONE"; Serial.println("ACK:RESET"); }
+      else Serial.println("NACK:RESET:NOT_IN_ERROR");
+    }
+    else {
+      Serial.println("NACK:UNKNOWN_CMD");
+    }
+  }
+
+  if (state == STARTING) {
+    delay(2000);
+    state = RUN;
+  }
+
+  if (state == RUN && millis() - lastTempUpdate >= 1000) {
+    temp += 3;
+    lastTempUpdate = millis();
+    if (temp > 80) { state = ERROR; lastError = "OVERHEAT"; }
+  }
+
+  if (millis() - lastSend >= 500) {
+    sendStatus();
+    lastSend = millis();
+  }
+}
+
+void sendStatus() {
+  if (state == STOP) Serial.println("ST:STOP");
+  else if (state == STARTING) Serial.println("ST:STARTING");
+  else if (state == RUN) { Serial.print("ST:RUN,TEMP:"); Serial.print(temp); Serial.println(",RPM:1200"); }
+  else if (state == ERROR) { Serial.print("ST:ERROR,ERR:"); Serial.print(lastError); Serial.print(",TEMP:"); Serial.println(temp); }
+}
