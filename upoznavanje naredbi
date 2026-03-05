@@ -1,0 +1,45 @@
+enum State {
+  STOP,
+  STARTING,
+  RUN,
+  ERROR
+};
+
+State state = STOP;
+
+unsigned long lastSend = 0;
+
+void setup() {
+  Serial.begin(9600);
+}
+
+void loop() {
+
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
+
+    if (cmd == "CMD:START") state = STARTING;
+    if (cmd == "CMD:STOP") state = STOP;
+    if (cmd == "CMD:ERROR") state = ERROR;
+    if (cmd == "CMD:RESET" && state == ERROR) state = STOP;
+  }
+
+  if (state == STARTING) {
+    delay(2000);
+    state = RUN;
+  }
+
+  if (millis() - lastSend > 500) {
+    sendStatus();
+    lastSend = millis();
+  }
+}
+
+void sendStatus() {
+
+  if (state == STOP) Serial.println("ST:STOP");
+  if (state == STARTING) Serial.println("ST:STARTING");
+  if (state == RUN) Serial.println("ST:RUN,TEMP:32,RPM:1200");
+  if (state == ERROR) Serial.println("ST:ERROR");
+
+}
