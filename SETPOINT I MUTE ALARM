@@ -1,0 +1,121 @@
+enum State { STOP, STARTING, RUN, ERROR };
+State state = STOP;
+
+unsigned long lastSend = 0;
+unsigned long lastTempUpdate = 0;
+
+int temp = 25;
+int sp = 70;
+
+bool alarmActive = false;
+bool alarmMuted = false;   // nakon ACK ne ponavljaj alarm dok se ne vrati ispod SP
+
+String err = "NONE";
+
+void setup() {
+  Serial.begin(9600);
+}
+
+void loop() {
+  // --- KOMANDE
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+
+    if (cmd.startsWith("CMD:SETSP:")) {
+      int newSp = cmd.substring(10).toInt();
+      if (newSp >= 30 && newSp <= 90) {
+        sp = newSp;
+        alarmActive = false;
+        alarmMuted = false;
+        Serial.print("ACK:SETSP:");
+        Serial.println(sp);
+      } else {
+        Serial.println("NACK:SETSP:OUT_OF_RANGE(30-90)");
+      }
+    }
+    else if (cmd == "CMD:START") {
+      state = STARTING;
+      err = "NONE";
+      Serial.println("ACK:START");
+    }
+    else if (cmd == "CMD:STOP") {
+      state = STOP;
+      Serial.println("ACK:STOP");
+    }
+    else if (cmd == "CMD:ACKALM") {
+      alarmActive = false;
+      alarmMuted = true;          // utišaj dok se ne vrati ispod SP
+      Serial.println("ACK:ACKALM");
+    }
+    else if (cmd == "CMD:RESET" && state == ERROR) {
+      state = STOP;
+      temp = 25;
+      alarmActive = false;
+      alarmMuted = false;
+      err = "NONE";
+      Serial.println("ACK:RESET");
+    }
+  }
+
+  // --- STARTING -> RUN
+  if (state == STARTING) {
+    delay(2000);
+    state = RUN;
+  }
+
+  // --- PROCES
+  if (state == RUN && millis() - lastTempUpdate >= 1000) {
+    if (temp < sp) temp += 3;
+    else temp += 1;
+    lastTempUpdate = millis();
+  }
+
+  // kad se vrati ispod SP, odmutiraj alarm
+  if (temp < sp) alarmMuted = false;
+
+  // --- ALARM (REACHED_SP)
+  if (state == RUN && temp >= sp && !alarmMuted) {
+    alarmActive = true;
+  }
+
+  // --- OVERHEAT -> ERROR
+  if (state == RUN && temp > 95) {
+    state = ERROR;
+    err = "OVERHEAT";
+  }
+
+  // --- STATUS svakih 500 ms
+  if (millis() - lastSend >= 500) {
+    sendStatus();
+    lastSend = millis();
+  }
+}
+
+void sendStatus() {
+  // prvo alarm (da bude vidljiv)
+  if (alarmActive) {
+    Serial.print("ALM:REACHED_SP,SP:");
+    Serial.print(sp);
+    Serial.print(",TEMP:");
+    Serial.println(temp);
+  }
+
+  if (state == STOP) Serial.println("ST:STOP");
+  else if (state == STARTING) Serial.println("ST:STARTING");
+  else if (state == RUN) {
+    Serial.print("ST:RUN,TEMP:");
+    Serial.print(temp);
+    Serial.print(",SP:");
+    Serial.print(sp);
+    Serial.println(",RPM:1200");
+  }
+  else if (state == ERROR) {
+    Serial.print("ST:ERROR,ERR:");
+    Serial.print(err);
+    Serial.print(",TEMP:");
+    Serial.print(temp);
+    Serial.print(",SP:");
+    Serial.println(sp);
+  }
+}
