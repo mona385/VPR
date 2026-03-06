@@ -1,45 +1,80 @@
-enum State {
-  STOP,
-  STARTING,
-  RUN,
-  ERROR
-};
-
+enum State { STOP, STARTING, RUN, ERROR };
 State state = STOP;
 
 unsigned long lastSend = 0;
+unsigned long startTimer = 0;
 
 void setup() {
   Serial.begin(9600);
+  Serial.println("SYS:READY");
+  Serial.println("Upisi: CMD:START, CMD:STOP, CMD:ERROR, CMD:RESET");
 }
 
 void loop() {
-
   if (Serial.available()) {
     String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
 
-    if (cmd == "CMD:START") state = STARTING;
-    if (cmd == "CMD:STOP") state = STOP;
-    if (cmd == "CMD:ERROR") state = ERROR;
-    if (cmd == "CMD:RESET" && state == ERROR) state = STOP;
+    if (cmd.length() > 0) {
+      Serial.print("RX:");
+      Serial.println(cmd);
+      processCommand(cmd);
+    }
   }
 
+  updateStateMachine();
+  sendPeriodicStatus();
+}
+
+void processCommand(String command) {
+  if (command == "CMD:START" && state == STOP) {
+    state = STARTING;
+    startTimer = millis();
+    Serial.println("ACK:START");
+  }
+  else if (command == "CMD:STOP") {
+    state = STOP;
+    Serial.println("ACK:STOP");
+  }
+  else if (command == "CMD:ERROR") {
+    state = ERROR;
+    Serial.println("ACK:ERROR");
+  }
+  else if (command == "CMD:RESET" && state == ERROR) {
+    state = STOP;
+    Serial.println("ACK:RESET");
+  }
+  else {
+    Serial.println("NACK");
+  }
+}
+
+void updateStateMachine() {
   if (state == STARTING) {
-    delay(2000);
-    state = RUN;
+    if (millis() - startTimer >= 2000) {
+      state = RUN;
+    }
   }
+}
 
-  if (millis() - lastSend > 500) {
+void sendPeriodicStatus() {
+  if (millis() - lastSend >= 1000) {
     sendStatus();
     lastSend = millis();
   }
 }
 
 void sendStatus() {
-
-  if (state == STOP) Serial.println("ST:STOP");
-  if (state == STARTING) Serial.println("ST:STARTING");
-  if (state == RUN) Serial.println("ST:RUN,TEMP:32,RPM:1200");
-  if (state == ERROR) Serial.println("ST:ERROR");
-
+  if (state == STOP) {
+    Serial.println("ST:STOP");
+  }
+  else if (state == STARTING) {
+    Serial.println("ST:STARTING");
+  }
+  else if (state == RUN) {
+    Serial.println("ST:RUN,TEMP:32,RPM:1200");
+  }
+  else if (state == ERROR) {
+    Serial.println("ST:ERROR");
+  }
 }
