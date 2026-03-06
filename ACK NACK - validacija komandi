@@ -2,13 +2,16 @@ enum State { STOP, STARTING, RUN, ERROR };
 State state = STOP;
 
 unsigned long lastSend = 0;
+unsigned long startTimer = 0;
 unsigned long lastTempUpdate = 0;
 
 int temp = 25;
-String lastError = "NONE";
+int sp = 70;   // default setpoint
 
 void setup() {
   Serial.begin(9600);
+  Serial.println("SYS:READY");
+  Serial.println("Komande: CMD:START, CMD:STOP, CMD:ERROR, CMD:RESET, CMD:SETSP:70");
 }
 
 void loop() {
@@ -16,37 +19,83 @@ void loop() {
     String cmd = Serial.readStringUntil('\n');
     cmd.trim();
 
-    if (cmd == "CMD:START") {
-      if (state == STOP) { state = STARTING; Serial.println("ACK:START"); }
-      else Serial.println("NACK:START:NOT_IN_STOP");
-    }
-    else if (cmd == "CMD:STOP") {
-      if (state == RUN || state == STARTING) { state = STOP; Serial.println("ACK:STOP"); }
-      else Serial.println("NACK:STOP:NOT_RUNNING");
-    }
-    else if (cmd == "CMD:ERROR") {
-      state = ERROR; lastError = "MANUAL"; Serial.println("ACK:ERROR");
-    }
-    else if (cmd == "CMD:RESET") {
-      if (state == ERROR) { state = STOP; temp = 25; lastError = "NONE"; Serial.println("ACK:RESET"); }
-      else Serial.println("NACK:RESET:NOT_IN_ERROR");
-    }
-    else {
-      Serial.println("NACK:UNKNOWN_CMD");
+    if (cmd.length() > 0) {
+      Serial.print("RX:");
+      Serial.println(cmd);
+      processCommand(cmd);
     }
   }
 
+  updateStateMachine();
+  updateTemperature();
+  sendPeriodicStatus();
+}
+
+void processCommand(String command) {
+  if (command == "CMD:START" && state == STOP) {
+    state = STARTING;
+    startTimer = millis();
+    Serial.println("ACK:START");
+  }
+  else if (command == "CMD:STOP") {
+    state = STOP;
+    temp = 25;
+    Serial.println("ACK:STOP");
+  }
+  else if (command == "CMD:ERROR") {
+    state = ERROR;
+    Serial.println("ACK:ERROR");
+  }
+  else if (command == "CMD:RESET" && state == ERROR) {
+    state = STOP;
+    temp = 25;
+    Serial.println("ACK:RESET");
+  }
+  else if (command.startsWith("CMD:SETSP:")) {
+    String valueText = command.substring(10);
+    int newSp = valueText.toInt();
+
+    if (newSp >= 30 && newSp <= 90) {
+      sp = newSp;
+      Serial.print("ACK:SETSP:");
+      Serial.println(sp);
+    } else {
+      Serial.println("NACK:SETSP:OUT_OF_RANGE");
+    }
+  }
+  else {
+    Serial.println("NACK:UNKNOWN_OR_INVALID");
+  }
+}
+
+void updateStateMachine() {
   if (state == STARTING) {
-    delay(2000);
-    state = RUN;
+    if (millis() - startTimer >= 2000) {
+      state = RUN;
+    }
   }
+}
 
-  if (state == RUN && millis() - lastTempUpdate >= 1000) {
-    temp += 3;
+void updateTemperature() {
+  if (millis() - lastTempUpdate >= 1000) {
     lastTempUpdate = millis();
-    if (temp > 80) { state = ERROR; lastError = "OVERHEAT"; }
-  }
 
+    if (state == RUN) {
+      temp += 2;
+
+      if (temp > sp) {
+        state = ERROR;
+        Serial.println("ALARM:TEMP_HIGH");
+      }
+    }
+
+    if (state == STOP && temp > 25) {
+      temp -= 1;
+    }
+  }
+}
+
+void sendPeriodicStatus() {
   if (millis() - lastSend >= 500) {
     sendStatus();
     lastSend = millis();
@@ -54,8 +103,29 @@ void loop() {
 }
 
 void sendStatus() {
-  if (state == STOP) Serial.println("ST:STOP");
-  else if (state == STARTING) Serial.println("ST:STARTING");
-  else if (state == RUN) { Serial.print("ST:RUN,TEMP:"); Serial.print(temp); Serial.println(",RPM:1200"); }
-  else if (state == ERROR) { Serial.print("ST:ERROR,ERR:"); Serial.print(lastError); Serial.print(",TEMP:"); Serial.println(temp); }
+  if (state == STOP) {
+    Serial.print("ST:STOP,TEMP:");
+    Serial.print(temp);
+    Serial.print(",SP:");
+    Serial.println(sp);
+  }
+  else if (state == STARTING) {
+    Serial.print("ST:STARTING,TEMP:");
+    Serial.print(temp);
+    Serial.print(",SP:");
+    Serial.println(sp);
+  }
+  else if (state == RUN) {
+    Serial.print("ST:RUN,TEMP:");
+    Serial.print(temp);
+    Serial.print(",SP:");
+    Serial.print(sp);
+    Serial.println(",RPM:1200");
+  }
+  else if (state == ERROR) {
+    Serial.print("ST:ERROR,TEMP:");
+    Serial.print(temp);
+    Serial.print(",SP:");
+    Serial.println(sp);
+  }
 }
